@@ -1,0 +1,124 @@
+name: Cathedral Arkhe — Lean 4 CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # Mathlib builds are slow
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lean 4
+        uses: leanprover/lean-action@v1
+        with:
+          test: false
+          build-args: "--threads=4"
+
+      - name: Build library
+        run: lake build
+
+      # ─────────────────────────────────────────────────────────
+      # CI Gate §55.1: No sorry in Lean source
+      #
+      # This is the programme's core verification discipline:
+      # "A claim counts when, and only when, there exists an executed
+      #  mechanism whose output would differ if the claim were false."
+      #
+      # `sorry` is a claim without a mechanism. It is forbidden.
+      # ─────────────────────────────────────────────────────────
+      - name: Gate §55.1 — No sorry in Lean source
+        run: |
+          echo "══════════════════════════════════════════════════"
+          echo "CI GATE §55.1: Checking for proof holes (sorry)"
+          echo "══════════════════════════════════════════════════"
+
+          SORRY_COUNT=$(grep -r "sorry" CathedralArkhe/ --include="*.lean" | grep -v "^.*:.*--.*sorry" | wc -l)
+
+          if [ "$SORRY_COUNT" -gt 0 ]; then
+            echo ""
+            echo "❌ GATE FAILED: Found $SORRY_COUNT proof hole(s)"
+            echo ""
+            echo "Affected files:"
+            grep -rn "sorry" CathedralArkhe/ --include="*.lean" | grep -v "^.*:.*--.*sorry"
+            echo ""
+            echo "Per §2.1: A claim counts only when a mechanism can refute it."
+            echo "Per §55.1: No theorem may carry 'sorry' into main."
+            echo ""
+            exit 1
+          else
+            echo ""
+            echo "✓ GATE PASSED: No proof holes found."
+            echo ""
+          fi
+
+      # ─────────────────────────────────────────────────────────
+      # CI Gate §55.1b: No `axiom` outside designated files
+      #
+      # Axioms are orphan assumptions. They must be in files named
+      # *Axiom*.lean or explicitly annotated.
+      # ─────────────────────────────────────────────────────────
+      - name: Gate §55.1b — Axioms in designated files only
+        run: |
+          echo "Checking for axioms outside designated files..."
+
+          AXIOM_VIOLATIONS=$(grep -rn "^axiom\|^  axiom" CathedralArkhe/ --include="*.lean" | \
+            grep -v "Axiom\.lean" | \
+            grep -v "Preliminaries.lean" | \
+            wc -l)
+
+          if [ "$AXIOM_VIOLATIONS" -gt 0 ]; then
+            echo "❌ GATE FAILED: Axioms found outside designated files"
+            grep -rn "^axiom\|^  axiom" CathedralArkhe/ --include="*.lean" | \
+              grep -v "Axiom\.lean" | grep -v "Preliminaries.lean"
+            exit 1
+          else
+            echo "✓ GATE PASSED: All axioms in designated files."
+          fi
+
+      # ─────────────────────────────────────────────────────────
+      # CI Gate §55.3: Theorem registry matches filesystem
+      # ─────────────────────────────────────────────────────────
+      - name: Gate §55.3 — Registry coherence check
+        run: |
+          echo "Checking theorem registry against filesystem..."
+
+          # Extract theorem names from Lean files
+          LEAN_THEOREMS=$(grep -rh "^theorem\|^lemma" CathedralArkhe/ --include="*.lean" | \
+            sed 's/theorem \([a-z_]*\).*/\1/' | \
+            sed 's/lemma \([a-z_]*\).*/\1/' | \
+            sort -u)
+
+          echo "Theorems in Lean source:"
+          echo "$LEAN_THEOREMS"
+          echo ""
+          echo "NOTE: Full registry check requires Appendix C parser."
+          echo "See §48.3 for automation plan."
+
+      # ─────────────────────────────────────────────────────────
+      # Summary
+      # ─────────────────────────────────────────────────────────
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "══════════════════════════════════════════════════"
+          echo "CATHEDRAL ARKHE CI SUMMARY"
+          echo "══════════════════════════════════════════════════"
+          echo ""
+          echo "Lean files:  $(find CathedralArkhe -name '*.lean' | wc -l)"
+          echo "Sorry count: $(grep -r 'sorry' CathedralArkhe/ --include='*.lean' | grep -v '^.*:.*--.*sorry' | wc -l)"
+          echo "Axiom files: $(find CathedralArkhe -name '*Axiom*.lean' | wc -l)"
+          echo ""
+          echo "Reference: CATHEDRAL-ARKHE-WHITEPAPER-v1.1, §55"
+          echo ""
