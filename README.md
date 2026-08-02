@@ -53,3 +53,13 @@ Unless required by applicable law or agreed to in writing, software distributed 
 ---
 
 Copyright © 2024 Nomic DAO Foundation.
+
+## Post-Quantum Cryptography (PQC) Support
+This repository now implements post-quantum cryptographic standards to ensure future resilience of the ledger mapping.
+
+The `timechain` library utilizes NIST-standard algorithms for ensuring security against Shor's algorithm:
+- **ML-KEM (Kyber1024)** for KEM operations across communication nodes.
+- **ML-DSA (Dilithium5)** for digital signature operations over TimeBlock hashes.
+- **SVD Compression**: Advanced lattice reduction mechanisms are applied to compress keys and signatures using Singular Value Decomposition across the topology.
+
+For benchmarking over network clusters, try running `cargo run --bin simulator_pqc`.
